@@ -1,0 +1,13 @@
+# pnpm 11 lê as configurações daqui — não mais do campo "pnpm" do package.json,
+# e não mais com os nomes da pnpm 10 (`onlyBuiltDependencies` virou `allowBuilds`).
+
+# O tsx roda em cima do esbuild, cujo postinstall baixa o binário nativo da
+# plataforma. O pnpm bloqueia scripts de instalação por padrão; sem esta linha
+# o tsx não funciona — e na pnpm 11 o bloqueio derruba `pnpm run` também.
+allowBuilds:
+  esbuild: true
+
+# Falha o install em versão de Node/pnpm fora do declarado em `engines`.
+# Numa turma isso vale ouro: erro claro no minuto zero em vez de bug obscuro
+# no meio da aula.
+engineStrict: true

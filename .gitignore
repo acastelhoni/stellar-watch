@@ -1,0 +1,15 @@
+node_modules/
+dist/
+
+# pnpm
+.pnpm-store/
+.pnpm-debug.log*
+
+# Segredos: a API key da Alchemy vai NA URL do RPC, e a secret key assina
+# transações. Nada disso é versionado.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

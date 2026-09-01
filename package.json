@@ -1,0 +1,35 @@
+{
+  "name": "stellar-watch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monitor de pagamentos Stellar — projeto do Módulo 4 (Pós NearX · Trilha Stellar)",
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.18.0",
+    "pnpm": ">=11.0.0"
+  },
+  "bin": {
+    "stellar-watch": "./src/index.ts"
+  },
+  "scripts": {
+    "probe": "tsx src/index.ts probe",
+    "read": "tsx src/index.ts read",
+    "account": "tsx src/index.ts account",
+    "pay": "tsx src/index.ts pay",
+    "fund": "tsx src/index.ts fund",
+    "lake": "tsx src/index.ts lake",
+    "watch": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^17.0.1",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
