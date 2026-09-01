@@ -1,30 +1,16 @@
 # Stellar Watch
 
-Monitor de pagamentos de linha de comando — projeto do **Módulo 4** da trilha
-Stellar (Pós NearX). Cumulativo em três aulas; nenhuma linha é descartada.
+Monitor de pagamentos Stellar por linha de comando. Sonda instâncias de RPC, lê
+estado de contrato, envia pagamentos clássicos e de token, e lê ledgers antigos
+direto do data lake público.
 
-O material de cada aula fica em [`aulas/`](aulas/), em Markdown:
-
-- [`aula-1-v2.md`](aulas/aula-1-v2.md) — **versão em uso.** Conceitual: cada ideia
-  é explicada e depois demonstrada com um comando do projeto.
-- [`aula-1.md`](aulas/aula-1.md) — versão técnica, com os trechos de código
-  comentados. Serve de referência para quem for ler o `src/`.
-
-| Aula | Arquivos | Estado |
-|---|---|---|
-| 1 — fundação | `config.ts` · `retry.ts` · `probe.ts` · `read.ts` · `pay.ts` · `index.ts` | ✅ pronto |
-| 2 — histórico | `poll.ts` · `ledgers.ts` | a construir |
-| 3 — eventos | `events.ts` · `reconcile.ts` | a construir |
-
-A pilha é **Stellar RPC + data lake (`getLedgers`) + Hubble + indexadores**.
-Sem Horizon: a documentação oficial já o trata como legado, e o Horizon público
-da SDF teve o histórico truncado para um ano em 1º de agosto de 2024.
+Sem Horizon: a pilha é **Stellar RPC + data lake**.
 
 ## Requisitos
 
 **Node ≥ 22.18** e **pnpm ≥ 11**. As duas versões estão em `engines`, e o
 `pnpm-workspace.yaml` liga `engineStrict` — quem estiver fora vê um erro claro
-no `pnpm install`, em vez de um bug obscuro no meio da aula.
+no `pnpm install`.
 
 O `packageManager` do `package.json` fixa o pnpm em 11.21.0. Com o corepack
 ligado, a versão certa é usada automaticamente:
@@ -33,7 +19,7 @@ ligado, a versão certa é usada automaticamente:
 corepack enable
 ```
 
-## Começando
+## Instalação
 
 ```bash
 pnpm install
@@ -48,7 +34,7 @@ ALCHEMY_API_KEY=...
 STELLAR_NETWORK=testnet
 ```
 
-**Sem chave da Alchemy?** O RPC público de Testnet resolve a aula inteira:
+**Sem chave da Alchemy?** O RPC público de Testnet cobre tudo menos Mainnet:
 
 ```
 STELLAR_NETWORK=testnet
@@ -67,11 +53,11 @@ Para Mainnet é provedor de ecossistema ou nó próprio.
 ```bash
 pnpm run probe                                   # sonde antes de perguntar
 pnpm run read <contractId> <chave> [persistent|temporary]
-pnpm run read <contractId> --instance            # storage de instância
-pnpm run account <publicKey>                     # o que o RPC sabe: só o sequence
+pnpm run read <contractId> --instance            # instance storage
+pnpm run account <publicKey>                     # o que o RPC sabe: só o sequence number
 pnpm run pay <destino> <valor> [ativo] [memo]
 pnpm run fund <publicKey>                        # friendbot (Testnet/Futurenet)
-pnpm run lake <ledger> [pubnet|testnet] [--txs|--xdr]   # ledger do data lake público
+pnpm run lake <ledger> [pubnet|testnet] [--txs|--xdr]
 pnpm run lake --date 2023-01-01                  # acha o ledger daquela data
 pnpm run typecheck
 ```
@@ -83,10 +69,10 @@ Exemplo de ponta a ponta em Testnet:
 
 ```bash
 pnpm run fund GABC...                        # financia a origem
-pnpm run pay GDEF... 12.5 native "aula1"     # assina com STELLAR_SECRET_KEY do .env
+pnpm run pay GDEF... 12.5 native "memo"      # assina com STELLAR_SECRET_KEY do .env
 ```
 
-## O que cada arquivo ensina
+## Como funciona
 
 **`config.ts`** — fábricas *lazy* por rede: `requireEnv` só roda para a rede
 selecionada, então ninguém precisa das credenciais de todas as redes para rodar
@@ -101,21 +87,26 @@ porque sem jitter N clientes que tomaram 429 juntos voltam juntos.
 existe "a janela de retenção do RPC": existe a janela **daquela instância**, e
 `oldestLedger` é o limite inferior do que se pode perguntar. O `probe` ainda
 tenta um `getLedgers` abaixo dele: se voltar `-32600`, aquela instância não tem
-data lake configurado, e histórico profundo é assunto da Aula 2.
+data lake configurado.
 
 **`read.ts`** — você monta a **chave**, não uma query. E são **três** tipos de
 storage, não dois: `persistent` e `temporary` guardam cada chave como uma ledger
 entry própria, enquanto `instance` é um mapa dentro da ledger entry da instância,
 endereçado por `scvLedgerKeyContractInstance()` — daí o modo `--instance`. Por
 isso `entries.length === 0` tem três causas, e a primeira é a mais comum: chave
-errada (storage, `durability` ou tipo), nunca existiu, ou sofreu state archival
-(Módulo 6).
+errada (storage, `durability` ou tipo), nunca existiu, ou sofreu state archival.
 
 ```bash
 export SAC=CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC  # XLM, Testnet
 pnpm run read $SAC METADATA      # → (vazio) — METADATA não está no espaço persistente
 pnpm run read $SAC --instance    # → { METADATA: { decimal: 7, name: 'native', … } }
 ```
+
+**`pay.ts`** — dois caminhos, porque são mesmo dois: pagamento clássico não
+passa por `simulateTransaction` (o método serve a uma operação Soroban);
+transferência de token passa **sempre**, porque é assim que o modelo de fees do
+Soroban funciona. `sendTransaction` devolve `PENDING`, nunca o resultado — e o
+loop de espera tem timeout, backoff e distingue `NOT_FOUND` de `FAILED`.
 
 **`lake.ts`** — o caminho que **não** passa pelo RPC. Baixa o arquivo de um
 ledger direto do bucket público da AWS e o decodifica localmente, o que permite
@@ -125,25 +116,20 @@ invertido (`0xFFFFFFFF - seq`), truque para que a S3 liste os mais recentes
 primeiro. `--date` faz busca binária sobre o próprio lake, ~24 requisições para
 achar qualquer data.
 
-**`pay.ts`** — dois caminhos, porque são mesmo dois: pagamento clássico não
-passa por `simulateTransaction` (o método serve a uma operação Soroban);
-transferência de token passa **sempre**, porque é assim que o modelo de fees do
-Soroban funciona. `sendTransaction` devolve `PENDING`, nunca o resultado — e o
-loop de espera tem timeout, backoff e distingue `NOT_FOUND` de `FAILED`.
+O lake de **testnet** tem layout diferente: como a Testnet é resetada, cada
+reset abre uma pasta por data e a extensão varia entre épocas. Por isso a chave
+de testnet é resolvida por listagem, enquanto a de pubnet é calculada.
 
 ## Versões
 
-Baseline do módulo: Mainnet no **Protocolo 27** ("Zipper"), RPC 23.0+. Testnet
-costuma estar à frente — rode `pnpm run probe` e leia o `protocolVersion`: é
-assim que você descobre, em 200 ms, se o tutorial que está seguindo é
-contemporâneo do seu código.
+Baseline: Mainnet no **Protocolo 27** ("Zipper"), RPC 23.0+. Testnet costuma
+estar à frente — rode `pnpm run probe` e leia o `protocolVersion`.
 
 Gerenciador de pacotes: **pnpm 11**. Node 24, TypeScript 7, ESM puro
 (`"type": "module"`, imports com extensão `.js`).
 
 O projeto usa **`@stellar/stellar-sdk` 17**, que reescreveu os bindings de XDR.
-Três diferenças em relação a material escrito para o SDK 16 ou anterior (o deck
-da Aula 1 já está corrigido):
+Três diferenças em relação a material escrito para o SDK 16 ou anterior:
 
 | SDK ≤ 16 | SDK 17 |
 |---|---|
@@ -172,18 +158,7 @@ pnpm run build && node dist/index.js probe
 
 Node ≥ 22.18 também executa TypeScript nativamente (`node src/index.ts`), mas
 só até o primeiro import: o runtime não resolve os especificadores `.js` do
-ESM/NodeNext para os arquivos `.ts` correspondentes. Serve para ver a ajuda,
-não para rodar o projeto.
+ESM/NodeNext para os arquivos `.ts` correspondentes.
 
 **Veio de um clone com `npm`** — apague `package-lock.json` e
 `node_modules/.ignored`, depois rode `pnpm install`.
-
-
-## Terminologia
-
-`aulas/aula-1.md` termina com um anexo listando os termos que **não** se
-traduzem nesta trilha — `ledger entry`, `storage`, `durability`, `footprint`,
-`resource fee`, `state archival`, `polling`, `backoff`, `sequence number`,
-`trustline`, entre outros. O código, a saída da CLI e o material de aula usam o
-mesmo vocabulário de propósito: o aluno procura o termo na documentação oficial
-e encontra.

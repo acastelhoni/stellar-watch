@@ -1,6 +1,4 @@
 /**
- * Aula 1 · arquivo 4 de 4
- *
  * Construir → (simular) → assinar → enviar → aguardar.
  *
  * Dois caminhos, porque são mesmo dois caminhos diferentes:
@@ -137,7 +135,7 @@ async function payToken(contractId: string, options: PayOptions): Promise<PayRes
   }
 
   if (Api.isSimulationRestore(simulation)) {
-    // Entrada arquivada: precisa de RestoreFootprint antes. Módulo 6.
+    // Entrada arquivada: precisa de RestoreFootprint antes.
     throw new Error(
       `Estado arquivado: é preciso restaurar antes de invocar ` +
         `(minResourceFee da restauração: ${simulation.restorePreamble.minResourceFee}).`,
@@ -178,16 +176,16 @@ async function submit(transaction: StellarSdk.Transaction): Promise<PayResult> {
 }
 
 /**
- * O loop do slide da documentação está incompleto de propósito. Aqui ele está
- * completo:
+ * O exemplo da documentação oficial é o mínimo viável, não o correto. Aqui o
+ * loop está completo:
  *   - TIMEOUT: sem limite, `while (status === "NOT_FOUND")` é loop infinito
  *     em produção;
  *   - BACKOFF: polling de 1s contra provedor com rate limit vira HTTP 429;
  *   - DISTINÇÃO DE ESTADOS: NOT_FOUND ≠ FAILED. Saem do loop por caminhos
  *     diferentes — um é "ainda não sei", o outro é "a rede rejeitou".
  *
- * (O SDK também traz `rpc.Server.pollTransaction`. Escrevemos o loop à mão
- * porque o ponto da aula é enxergar os três buracos acima.)
+ * (O SDK também traz `rpc.Server.pollTransaction`, que resolve o mesmo
+ * problema se você não precisar controlar os três pontos acima.)
  */
 export async function waitForTransaction(
   hash: string,

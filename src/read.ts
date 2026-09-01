@@ -1,6 +1,4 @@
 /**
- * Aula 1 · arquivo 3 de 4
- *
  * Leitura de estado de contrato via `getLedgerEntries`.
  *
  *  1. Você monta a CHAVE, não uma query. Não existe `SELECT WHERE` —
@@ -14,7 +12,7 @@
  *  3. `entries.length === 0` tem três causas, e a mais comum é a primeira:
  *       - você montou a chave errada (storage, durability ou tipo errados);
  *       - a entrada nunca existiu;
- *       - a entrada sofreu state archival (Módulo 6).
+ *       - a entrada sofreu state archival.
  */
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { rpc } from "./config.js";
@@ -145,7 +143,7 @@ export async function readInstance(contractId: string): Promise<InstanceResult> 
  * O RPC devolve o MÍNIMO para construir uma transação: essencialmente o número
  * de sequência. Sem saldos, sem trustlines, sem signers, sem thresholds.
  * Isso é escopo, não falta — metadado rico é pergunta de outra camada
- * (Hubble ou indexador), e vira o `reconcile.ts` na Aula 3.
+ * (Hubble ou um indexador de ecossistema).
  */
 export async function readAccount(publicKey: string): Promise<{ id: string; sequence: string }> {
   const account = await withRetry(() => rpc.getAccount(publicKey), { label: "getAccount" });

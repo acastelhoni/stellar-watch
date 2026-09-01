@@ -1,6 +1,4 @@
 /**
- * Aula 1 · arquivo 2 de 4
- *
  * A primeira coisa que você roda contra QUALQUER provedor novo.
  *
  * Não existe "a janela de retenção do RPC". Existe a janela DAQUELA instância.
@@ -66,7 +64,7 @@ export async function probe(): Promise<ProbeResult> {
     "Histórico:    ",
     result.deepHistory
       ? "getLedgers fura a janela (data lake / RPC Archive disponível)"
-      : "getLedgers limitado ao oldestLedger (sem data lake) → Aula 2 resolve",
+      : "getLedgers limitado ao oldestLedger (sem data lake)",
   );
 
   return result;

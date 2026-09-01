@@ -1,6 +1,4 @@
 /**
- * Aula 1 · arquivo 1 de 4
- *
  * Configuração por rede + o cliente de RPC do projeto.
  *
  * Três decisões que valem a pena entender aqui:
@@ -63,9 +61,8 @@ const configs: Record<NetworkName, (rpcUrl?: string) => NetworkConfig> = {
     networkPassphrase: StellarSdk.Networks.TESTNET,
     friendbotUrl: "https://friendbot.stellar.org",
   }),
-  // As duas abaixo não estão no deck; existem para quem quiser rodar a aula
-  // sem chave da Alchemy (o RPC público de Testnet também serve: basta
-  // apontar STELLAR_RPC_URL para https://soroban-testnet.stellar.org).
+  // Redes sem provedor pago: o RPC público de Testnet também serve — basta
+  // apontar STELLAR_RPC_URL para https://soroban-testnet.stellar.org.
   futurenet: (rpcUrl) => ({
     network: "futurenet",
     rpcUrl: rpcUrl ?? "https://rpc-futurenet.stellar.org",

@@ -1,9 +1,6 @@
 /**
- * Aula 1 · infraestrutura do projeto (não é enfeite).
- *
  * Sem streaming no protocolo, tudo é polling — e polling contra provedor com
- * rate limit EXIGE backoff. Este helper é usado por `probe`, `read` e `pay`,
- * e vira a base do cursor durável do `poll.ts` na Aula 2.
+ * rate limit EXIGE backoff. Este helper é usado por `probe`, `read` e `pay`.
  */
 
 export const sleep = (ms: number): Promise<void> =>

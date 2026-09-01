@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 /**
  * Stellar Watch — CLI.
- *
- * Aula 1: probe · read · pay (+ fund, conveniência de Testnet)
- * Aula 2: poll · ledgers
- * Aula 3: events · reconcile
  */
 // Imports dinâmicos de propósito: `config.ts` valida credenciais ao carregar,
 // e `stellar-watch` sem argumentos deve imprimir a ajuda mesmo sem .env.
