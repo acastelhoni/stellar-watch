@@ -6,105 +6,137 @@ Esta proposta de melhoria conecta diretamente os conceitos da **Aula 1 (Arquitet
 
 ## 🛠️ O Código Alterado (`src/probe.ts`)
 
-Aqui está a implementação completa e atualizada do arquivo `probe.ts` em TypeScript, utilizando o **`fetch` nativo do Node 22** e gerenciamento resiliente de timeouts via **`AbortController`**.
+Aqui está a implementação completa e atualizada do arquivo `probe.ts` em TypeScript, utilizando o **`fetch` nativo do Node 22** e gerenciamento resiliente de timeouts via **`AbortC```typescript
+/**
+ * A primeira coisa que você roda contra QUALQUER provedor novo.
+ *
+ * Diagnóstico híbrido:
+ *  1. Janela quente: sonda a retenção do RPC (oldestLedger .. latestLedger).
+ *  2. Histórico profundo: avalia se o RPC integra data lake nativo.
+ *  3. Fallback frio: se o RPC tiver memória curta, valida a conectividade direta
+ *     com o Data Lake público da AWS (S3) e instrui o uso do comando `lake`.
+ */
+import { config, redactedRpcUrl, rpc } from "./config.js";
+import { withRetry } from "./retry.js";
 
-```typescript
-import { rpc, getNetworkConfig } from './config'; // Assumindo a importação de configurações do projeto
+/** Código JSON-RPC devolvido ao pedir ledger fora da janela sem data lake. */
+const INVALID_REQUEST = -32600;
+
+/** Endpoint do Data Lake público oficial (AWS Open Data) usado pelo lake.ts */
+const AWS_LAKE_BUCKET = "https://aws-public-blockchain.s3.amazonaws.com";
+
+const jsonRpcCode = (error: unknown): number | undefined => {
+  const e = error as { code?: number; response?: { data?: { error?: { code?: number } } } };
+  return e?.code ?? e?.response?.data?.error?.code;
+};
+
+export interface ProbeResult {
+  network: string;
+  status: string;
+  protocolVersion: string;
+  latestLedger: number;
+  oldestLedger: number;
+  /** Profundidade real, em ledgers, desta instância. */
+  windowLedgers: number;
+  /** ~5s por ledger — só para dar noção humana da janela. */
+  windowDays: number;
+  /** true = getLedgers fura a janela (RPC Archive ou data lake configurado no RPC). */
+  deepHistory: boolean;
+  /** true = Data Lake público na AWS S3 está acessível para leitura direta via lake.ts */
+  lakeOnline?: boolean;
+}
 
 /**
- * Valida de forma independente se o S3 Data Lake público da SDF está operacional.
- * Atua como um diagnóstico alternativo quando o RPC não possui data lake integrado.
+ * Valida conectividade com o bucket S3 público do Data Lake via HEAD request com timeout.
  */
-async function checkS3DataLakeConnection(network: string): Promise<boolean> {
-  // URLs oficiais do histórico do Data Lake da SDF para Testnet e Mainnet/Pubnet
-  const s3Url = network === 'mainnet' || network === 'pubnet'
-    ? 'https://history.stellar.org/prd/core-live/core_live_001/.well-known/stellar-history.json'
-    : 'https://history-testnet.stellar.org/prd/core-testnet/core_testnet_001/.well-known/stellar-history.json';
-
+async function checkS3DataLakeConnection(): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 segundos de timeout
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-    // HEAD request para testar apenas conectividade de cabeçalho, economizando banda
-    const response = await fetch(s3Url, {
-      method: 'HEAD',
-      signal: controller.signal
+    const response = await fetch(`${AWS_LAKE_BUCKET}?list-type=2&prefix=v1.1/stellar/ledgers/`, {
+      method: "HEAD",
+      signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
-    return response.ok;
-  } catch (error) {
-    // Falha de rede ou timeout
+    return response.ok || response.status === 403;
+  } catch {
     return false;
   }
 }
 
+export async function probe(): Promise<ProbeResult> {
+  const [health, ledger] = await Promise.all([
+    withRetry(() => rpc.getHealth(), { label: "getHealth" }),
+    withRetry(() => rpc.getLatestLedger(), { label: "getLatestLedger" }),
+  ]);
+
+  const windowLedgers = ledger.sequence - health.oldestLedger;
+  const deepHistory = await hasDeepHistory(health.oldestLedger);
+  const lakeOnline = !deepHistory ? await checkS3DataLakeConnection() : undefined;
+
+  const result: ProbeResult = {
+    network: config.network,
+    status: health.status,
+    protocolVersion: ledger.protocolVersion,
+    latestLedger: ledger.sequence,
+    oldestLedger: health.oldestLedger,
+    windowLedgers,
+    windowDays: (windowLedgers * 5) / 86_400,
+    deepHistory,
+    lakeOnline,
+  };
+
+  console.log("--- 📊 DADOS DO SERVIDOR RPC (DADOS QUENTES) ---");
+  console.log("Rede:         ", result.network);
+  console.log("RPC:          ", redactedRpcUrl());
+  console.log("Passphrase:   ", config.networkPassphrase);
+  console.log("Status:       ", result.status);
+  console.log("Protocolo:    ", result.protocolVersion);
+  console.log("Latest ledger:", result.latestLedger);
+  console.log("Oldest ledger:", result.oldestLedger);
+  console.log(
+    "Janela Quente:",
+    `${result.windowLedgers} ledgers (~${result.windowDays.toFixed(1)} dias em memória)`,
+  );
+
+  console.log("\n--- 🌐 DIAGNÓSTICO DE DADOS FRIOS & DATA LAKE ---");
+  if (result.deepHistory) {
+    console.log("Histórico RPC: ✅ getLedgers fura a janela (RPC Archive / Data Lake integrado)");
+  } else {
+    console.log("Histórico RPC: ⚠️  Limitado ao oldestLedger (RPC sem data lake acoplado)");
+
+    if (result.lakeOnline) {
+      console.log("S3 Data Lake:  ✅ ONLINE (AWS Open Data acessível)");
+      console.log("\n💡 Diagnóstico & Prática:");
+      console.log(`   Consultas de ledgers abaixo de ${result.oldestLedger} falharão via RPC.`);
+      console.log("   Como o Data Lake está acessível, utilize o comando de leitura direta:");
+      console.log("   👉 pnpm run lake <ledger>\n");
+    } else {
+      console.log("S3 Data Lake:  ❌ Indisponível ou bloqueado por firewall/DNS.");
+      console.log(`   Histórico restrito estritamente a [${result.oldestLedger}..${result.latestLedger}].\n`);
+    }
+  }
+
+  return result;
+}
+
 /**
- * Função principal do comando de sondagem (probe)
+ * RPC 23.0 integrou data lake ao `getLedgers`, e SÓ a ele: os demais métodos
+ * continuam presos ao HISTORY_RETENTION_WINDOW do nó. Sem data lake, pedir um
+ * ledger abaixo do oldestLedger falha com -32600. É esse erro que sondamos aqui.
  */
-export async function runProbe() {
-  const network = process.env.STELLAR_NETWORK || 'testnet';
-  console.log(`🔍 Iniciando sondagem na rede: ${network.toUpperCase()}...\n`);
+async function hasDeepHistory(oldestLedger: number): Promise<boolean> {
+  const belowFloor = Math.max(2, oldestLedger - 1_000);
+  if (belowFloor >= oldestLedger) return false;
 
   try {
-    // 1. Consulta inicial ao RPC para ler os limites da janela de retenção
-    const latestLedgerResponse = await rpc.getLatestLedger();
-    const latestLedger = latestLedgerResponse.sequence;
-    
-    // O RPC expõe qual o ledger mais antigo que ele mantém em memória quente
-    const oldestLedger = latestLedgerResponse.oldestLedger || (latestLedger - 100); 
-
-    console.log("--- 📊 DADOS DO SERVIDOR RPC ---");
-    console.log(`Ledger Atual:  ${latestLedger}`);
-    console.log(`Oldest Ledger: ${oldestLedger}`);
-    console.log(`Janela Quente: Retenção de ${latestLedger - oldestLedger} ledgers em memória.\n`);
-
-    // 2. Testando suporte nativo do RPC para consultas históricas profundas
-    let hasNativeDataLake = false;
-    try {
-      // Forçamos uma consulta por um ledger abaixo do limite físico do RPC (oldestLedger - 1)
-      const targetLedger = oldestLedger - 1;
-      if (targetLedger > 0) {
-        await rpc.getLedger(targetLedger);
-        hasNativeDataLake = true;
-      }
-    } catch (rpcError: any) {
-      // Erro clássico JSON-RPC -32600 indica limite de retenção excedido sem data lake acoplado
-      if (rpcError?.code === -32600) {
-        hasNativeDataLake = false;
-      } else {
-        // Outros erros de rede ou timeout
-        throw rpcError;
-      }
-    }
-
-    // 3. Execução do Diagnóstico Híbrido de Rede
-    console.log("--- 🌐 DIAGNÓSTICO DE HISTÓRICO HÍBRIDO ---");
-    if (hasNativeDataLake) {
-      console.log("Suporte RPC:   ✅ Ativo! Este nó RPC consegue ler o histórico profundo nativamente.");
-      console.log("Arquitetura:   Híbrida de alta capacidade.");
-    } else {
-      console.log("Suporte RPC:   ⚠️  Inativo. Este nó de RPC tem memória curta (oldestLedger).");
-      
-      // Iniciando teste independente do S3
-      console.log("S3 Data Lake:  Avaliando conectividade direta com a AWS SDF...");
-      const s3Online = await checkS3DataLakeConnection(network);
-
-      if (s3Online) {
-        console.log("S3 Data Lake:  ✅ ONLINE! O armazenamento de dados frios da SDF está acessível.");
-        console.log("\n💡 Diagnóstico & Aprendizado:");
-        console.log("   Como este nó de RPC não possui Data Lake integrado, requisições de ledgers passados");
-        console.log(`   (abaixo de ${oldestLedger}) falharão se feitas via chamadas RPC tradicionais.`);
-        console.log("   No entanto, o Data Lake da SDF está operacional!");
-        console.log("   Você pode ignorar a limitação de gravidade do RPC rodando o comando local do S3:");
-        console.log("   👉 pnpm run lake <ledger>\n");
-      } else {
-        console.log("S3 Data Lake:  ❌ OFFLINE ou Inacessível (Sem rede/DNS ou bloqueio de firewall).");
-        console.log(`Histórico:     🚨 Estritamente limitado à janela quente do RPC (${oldestLedger} a ${latestLedger}).\n`);
-      }
-    }
-
-  } catch (error: any) {
-    console.error("❌ Falha crítica ao executar a sondagem do probe:", error?.message || error);
+    await rpc.getLedgers({ startLedger: belowFloor, pagination: { limit: 1 } });
+    return true;
+  } catch (error) {
+    if (jsonRpcCode(error) === INVALID_REQUEST) return false;
+    return false;
   }
 }
+```
